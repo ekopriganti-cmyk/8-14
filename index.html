@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MT5 Bot Remote Control — EMA 8 x 14 Dollar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0b0f19; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
+    .card { background-color: #111827; border: 1px solid #1f2937; border-radius: 0.75rem; }
+    .input-field {
+      background-color: #1f2937; border: 1px solid #374151; color: #f8fafc;
+      border-radius: 0.5rem; padding: 0.5rem 0.75rem; width: 100%; font-weight: 600;
+      transition: border-color 0.15s ease;
+    }
+    .input-field:focus { outline: none; border-color: #3b82f6; }
+    .toggle-checkbox:checked { right: 0; border-color: #10b981; }
+    .toggle-checkbox:checked + .toggle-label { background-color: #10b981; }
+  </style>
+</head>
+<body class="min-h-screen pb-16">
+
+  <!-- Header & Status Bar -->
+  <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" id="mt5Pulse"></div>
+        <div>
+          <h1 class="text-base font-bold text-white tracking-tight">MT5 Bot Remote Control v2.0</h1>
+          <p class="text-xs text-gray-400" id="mt5StatusText">EMA 8 x EMA 14 (Terkunci) • Menunggu Koneksi Worker...</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="syncBadge" class="text-xs px-2.5 py-1 rounded-full bg-gray-800 text-gray-300 border border-gray-700">
+          Belum Sinkron
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 mt-5 space-y-5">
+
+    <!-- Notifikasi Pop-up -->
+    <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg shadow-xl border text-sm font-medium transition-all"></div>
+
+    <!-- 0. Koneksi URL Cloudflare Worker -->
+    <section class="card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400">0. Koneksi Server Cloudflare Worker</h2>
+        <button onclick="fetchCurrentConfig()" class="text-xs text-blue-400 hover:text-blue-300 font-semibold">
+          ↻ Muat Ulang Data
+        </button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-gray-400 mb-1">URL Endpoint Worker (`InpWebConfigUrl`)</label>
+          <input type="url" id="workerUrl" placeholder="https://nama-worker.akun.workers.dev/bot-config.json" class="input-field text-sm" onchange="saveConnectionLocal()" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">PIN Admin (Opsional)</label>
+          <input type="password" id="adminPin" placeholder="Kosongkan jika tanpa PIN" class="input-field text-sm" onchange="saveConnectionLocal()" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Kontrol Utama: Master On/Off & Tombol Darurat Force Close -->
+    <section class="card p-4 border-l-4 border-l-emerald-500" id="masterCard">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="bot_active" class="sr-only peer" checked onchange="pushUpdate(false)" />
+            <div class="w-14 h-7 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
+          </label>
+          <div>
+            <div class="text-sm font-bold text-white" id="botActiveLabel">STATUS BOT: AKTIF (ON)</div>
+            <p class="text-xs text-gray-400">Saat di-ON-kan ulang, bot otomatis menunggu sinyal persilangan Fresh EMA 8 x 14.</p>
+          </div>
+        </div>
+
+        <button onclick="triggerForceClose()" class="px-3.5 py-2 rounded-lg bg-red-600/20 hover:bg-red-600 border border-red-500/50 text-red-300 hover:text-white text-xs font-bold transition">
+          ⚡ FORCE CLOSE SEMUA POSISI
+        </button>
+      </div>
+    </section>
+
+    <!-- 1. Pengaturan Lot, Multi-Entry & Magic Number -->
+    <section class="card p-4">
+      <h2 class="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-3">
+        1. Pengaturan Lot, Multi-Entry & Magic Number
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Ukuran Lot per Posisi (Tiket)</label>
+          <input type="number" id="lot_size" step="0.01" min="0.01" value="0.01" class="input-field" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Jumlah Entry Sekaligus / Sinyal</label>
+          <input type="number" id="orders_per_signal" step="1" min="1" value="3" class="input-field" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Magic Number (Identitas Bot)</label>
+          <input type="number" id="magic_number" step="1" min="1" value="881405" class="input-field" />
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Pengaturan Stop Loss & Take Profit Dolar ($) -->
+    <section class="card p-4">
+      <h2 class="text-xs font-bold uppercase tracking-wider text-amber-400 mb-3">
+        2. Stop Loss & Take Profit Berbasis Dolar ($ per Tiket)
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- Box Stop Loss -->
+        <div class="p-3 rounded-lg bg-gray-900/70 border border-gray-800 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-semibold text-red-400">Stop Loss Dolar ($)</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="use_sl_usd" class="sr-only peer" checked onchange="pushUpdate(false)" />
+              <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+            </label>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Batas Rugi Maksimal ($) per Tiket</label>
+            <input type="number" id="sl_usd" step="0.1" min="0" value="10.0" class="input-field" />
+          </div>
+        </div>
+
+        <!-- Box Take Profit -->
+        <div class="p-3 rounded-lg bg-gray-900/70 border border-gray-800 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-semibold text-emerald-400">Take Profit Dolar ($)</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="use_tp_usd" class="sr-only peer" checked onchange="pushUpdate(false)" />
+              <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1">Target Untung Bersih ($) per Tiket</label>
+            <input type="number" id="tp_usd" step="0.1" min="0" value="10.0" class="input-field" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Pengaturan Trailing Stop 5 Level Dolar ($) -->
+    <section class="card p-4">
+      <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-800">
+        <div>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-purple-400">
+            3. Trailing Stop 5 Level Berbasis Dolar ($ per Tiket)
+          </h2>
+          <p class="text-xs text-gray-400">Isi Profit Pemicu = 0 pada level tertentu jika ingin mematikan level tersebut.</p>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="use_trailing_usd" class="sr-only peer" checked onchange="toggleTrailingSection(); pushUpdate(false);" />
+          <div class="w-12 h-6 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+        </label>
+      </div>
+
+      <div id="trailingLevelsContainer" class="space-y-2.5 transition-opacity">
+        <!-- Level 1 -->
+        <div class="grid grid-cols-12 items-center gap-2 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
+          <div class="col-span-12 sm:col-span-2 text-xs font-bold text-purple-300">LEVEL 1</div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Pemicu ($)</label>
+            <input type="number" id="trigger_lvl1_usd" step="0.1" min="0" value="1.0" class="input-field text-sm" />
+          </div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Dikunci ($)</label>
+            <input type="number" id="lock_lvl1_usd" step="0.1" value="0.5" class="input-field text-sm" />
+          </div>
+        </div>
+
+        <!-- Level 2 -->
+        <div class="grid grid-cols-12 items-center gap-2 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
+          <div class="col-span-12 sm:col-span-2 text-xs font-bold text-purple-300">LEVEL 2</div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Pemicu ($)</label>
+            <input type="number" id="trigger_lvl2_usd" step="0.1" min="0" value="2.0" class="input-field text-sm" />
+          </div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Dikunci ($)</label>
+            <input type="number" id="lock_lvl2_usd" step="0.1" value="1.2" class="input-field text-sm" />
+          </div>
+        </div>
+
+        <!-- Level 3 -->
+        <div class="grid grid-cols-12 items-center gap-2 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
+          <div class="col-span-12 sm:col-span-2 text-xs font-bold text-purple-300">LEVEL 3</div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Pemicu ($)</label>
+            <input type="number" id="trigger_lvl3_usd" step="0.1" min="0" value="3.0" class="input-field text-sm" />
+          </div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Dikunci ($)</label>
+            <input type="number" id="lock_lvl3_usd" step="0.1" value="2.0" class="input-field text-sm" />
+          </div>
+        </div>
+
+        <!-- Level 4 -->
+        <div class="grid grid-cols-12 items-center gap-2 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
+          <div class="col-span-12 sm:col-span-2 text-xs font-bold text-purple-300">LEVEL 4</div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Pemicu ($)</label>
+            <input type="number" id="trigger_lvl4_usd" step="0.1" min="0" value="4.0" class="input-field text-sm" />
+          </div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Dikunci ($)</label>
+            <input type="number" id="lock_lvl4_usd" step="0.1" value="3.0" class="input-field text-sm" />
+          </div>
+        </div>
+
+        <!-- Level 5 -->
+        <div class="grid grid-cols-12 items-center gap-2 bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
+          <div class="col-span-12 sm:col-span-2 text-xs font-bold text-purple-300">LEVEL 5</div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Pemicu ($)</label>
+            <input type="number" id="trigger_lvl5_usd" step="0.1" min="0" value="5.0" class="input-field text-sm" />
+          </div>
+          <div class="col-span-6 sm:col-span-5">
+            <label class="block text-[11px] text-gray-400">Profit Dikunci ($)</label>
+            <input type="number" id="lock_lvl5_usd" step="0.1" value="4.0" class="input-field text-sm" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tombol Simpan Permanen & Update Real-Time -->
+    <div class="sticky bottom-3 z-20">
+      <button onclick="pushUpdate(false)" id="saveBtn" class="w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2">
+        <span>💾 SIMPAN & UPDATE KE BOT SECARA REAL-TIME</span>
+      </button>
+    </div>
+
+  </main>
+
+  <script>
+    const STORAGE_URL_KEY = "mt5_bot_worker_url";
+    const STORAGE_PIN_KEY = "mt5_bot_admin_pin";
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
+      const savedPin = localStorage.getItem(STORAGE_PIN_KEY);
+      if (savedUrl) document.getElementById("workerUrl").value = savedUrl;
+      if (savedPin) document.getElementById("adminPin").value = savedPin;
+
+      if (savedUrl) {
+        fetchCurrentConfig();
+      }
+      // Polling status koneksi MT5 setiap 3 detik
+      setInterval(() => {
+        const url = document.getElementById("workerUrl").value.trim();
+        if (url) pollMt5Heartbeat();
+      }, 3000);
+    });
+
+    function saveConnectionLocal() {
+      localStorage.setItem(STORAGE_URL_KEY, document.getElementById("workerUrl").value.trim());
+      localStorage.setItem(STORAGE_PIN_KEY, document.getElementById("adminPin").value.trim());
+    }
+
+    function toggleTrailingSection() {
+      const enabled = document.getElementById("use_trailing_usd").checked;
+      const container = document.getElementById("trailingLevelsContainer");
+      container.style.opacity = enabled ? "1" : "0.35";
+    }
+
+    function updateMasterVisual() {
+      const active = document.getElementById("bot_active").checked;
+      const label = document.getElementById("botActiveLabel");
+      const card = document.getElementById("masterCard");
+      if (active) {
+        label.textContent = "STATUS BOT: AKTIF (ON)";
+        label.className = "text-sm font-bold text-emerald-400";
+        card.className = "card p-4 border-l-4 border-l-emerald-500";
+      } else {
+        label.textContent = "STATUS BOT: BERHENTI / PAUSE (OFF)";
+        label.className = "text-sm font-bold text-red-400";
+        card.className = "card p-4 border-l-4 border-l-red-500";
+      }
+    }
+
+    async function fetchCurrentConfig() {
+      const url = document.getElementById("workerUrl").value.trim();
+      if (!url) {
+        showToast("Masukkan URL Cloudflare Worker terlebih dahulu!", true);
+        return;
+      }
+      saveConnectionLocal();
+
+      try {
+        const sep = url.includes("?") ? "&" : "?";
+        const res = await fetch(`${url}${sep}source=dashboard&t=${Date.now()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        populateForm(data);
+        updateHeartbeatUI(data._mt5_status);
+        showToast("Data konfigurasi berhasil dimuat dari Cloudflare KV!", false);
+      } catch (err) {
+        showToast("Gagal terhubung ke Worker: " + err.message, true);
+      }
+    }
+
+    async function pollMt5Heartbeat() {
+      const url = document.getElementById("workerUrl").value.trim();
+      if (!url) return;
+      try {
+        const sep = url.includes("?") ? "&" : "?";
+        const res = await fetch(`${url}${sep}source=dashboard&t=${Date.now()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        updateHeartbeatUI(data._mt5_status);
+      } catch (_) {}
+    }
+
+    function updateHeartbeatUI(status) {
+      const pulse = document.getElementById("mt5Pulse");
+      const text = document.getElementById("mt5StatusText");
+      const badge = document.getElementById("syncBadge");
+
+      if (status && status.connected && status.seconds_ago !== null && status.seconds_ago <= 10) {
+        pulse.className = "w-3 h-3 rounded-full bg-emerald-500 animate-ping";
+        text.textContent = `MT5 Terhubung: ${status.symbol} (Magic #${status.magic}) • Sinkron ${status.seconds_ago}d lalu`;
+        badge.textContent = "LIVE SINKRON";
+        badge.className = "text-xs px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-semibold";
+      } else {
+        pulse.className = "w-3 h-3 rounded-full bg-amber-500";
+        text.textContent = "Worker Aktif • Menunggu ping WebRequest dari MT5...";
+        badge.textContent = "Standby KV";
+        badge.className = "text-xs px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700";
+      }
+    }
+
+    function populateForm(data) {
+      document.getElementById("bot_active").checked = Boolean(data.bot_active);
+      document.getElementById("lot_size").value = data.lot_size ?? 0.01;
+      document.getElementById("orders_per_signal").value = data.orders_per_signal ?? 3;
+      document.getElementById("magic_number").value = data.magic_number ?? 881405;
+
+      document.getElementById("use_sl_usd").checked = Boolean(data.use_sl_usd);
+      document.getElementById("sl_usd").value = data.sl_usd ?? 10.0;
+      document.getElementById("use_tp_usd").checked = Boolean(data.use_tp_usd);
+      document.getElementById("tp_usd").value = data.tp_usd ?? 10.0;
+
+      document.getElementById("use_trailing_usd").checked = Boolean(data.use_trailing_usd);
+      document.getElementById("trigger_lvl1_usd").value = data.trigger_lvl1_usd ?? 1.0;
+      document.getElementById("lock_lvl1_usd").value = data.lock_lvl1_usd ?? 0.5;
+      document.getElementById("trigger_lvl2_usd").value = data.trigger_lvl2_usd ?? 2.0;
+      document.getElementById("lock_lvl2_usd").value = data.lock_lvl2_usd ?? 1.2;
+      document.getElementById("trigger_lvl3_usd").value = data.trigger_lvl3_usd ?? 3.0;
+      document.getElementById("lock_lvl3_usd").value = data.lock_lvl3_usd ?? 2.0;
+      document.getElementById("trigger_lvl4_usd").value = data.trigger_lvl4_usd ?? 4.0;
+      document.getElementById("lock_lvl4_usd").value = data.lock_lvl4_usd ?? 3.0;
+      document.getElementById("trigger_lvl5_usd").value = data.trigger_lvl5_usd ?? 5.0;
+      document.getElementById("lock_lvl5_usd").value = data.lock_lvl5_usd ?? 4.0;
+
+      updateMasterVisual();
+      toggleTrailingSection();
+    }
+
+    async function pushUpdate(forceCloseAll = false) {
+      updateMasterVisual();
+      const url = document.getElementById("workerUrl").value.trim();
+      const pin = document.getElementById("adminPin").value.trim();
+
+      if (!url) {
+        showToast("Masukkan URL Cloudflare Worker terlebih dahulu!", true);
+        return;
+      }
+      saveConnectionLocal();
+
+      const payload = {
+        bot_active: document.getElementById("bot_active").checked,
+        force_close_all: Boolean(forceCloseAll),
+        lot_size: parseFloat(document.getElementById("lot_size").value) || 0.01,
+        orders_per_signal: parseInt(document.getElementById("orders_per_signal").value, 10) || 1,
+        magic_number: parseInt(document.getElementById("magic_number").value, 10) || 881405,
+        use_sl_usd: document.getElementById("use_sl_usd").checked,
+        sl_usd: parseFloat(document.getElementById("sl_usd").value) || 0,
+        use_tp_usd: document.getElementById("use_tp_usd").checked,
+        tp_usd: parseFloat(document.getElementById("tp_usd").value) || 0,
+        use_trailing_usd: document.getElementById("use_trailing_usd").checked,
+        trigger_lvl1_usd: parseFloat(document.getElementById("trigger_lvl1_usd").value) || 0,
+        lock_lvl1_usd: parseFloat(document.getElementById("lock_lvl1_usd").value) || 0,
+        trigger_lvl2_usd: parseFloat(document.getElementById("trigger_lvl2_usd").value) || 0,
+        lock_lvl2_usd: parseFloat(document.getElementById("lock_lvl2_usd").value) || 0,
+        trigger_lvl3_usd: parseFloat(document.getElementById("trigger_lvl3_usd").value) || 0,
+        lock_lvl3_usd: parseFloat(document.getElementById("lock_lvl3_usd").value) || 0,
+        trigger_lvl4_usd: parseFloat(document.getElementById("trigger_lvl4_usd").value) || 0,
+        lock_lvl4_usd: parseFloat(document.getElementById("lock_lvl4_usd").value) || 0,
+        trigger_lvl5_usd: parseFloat(document.getElementById("trigger_lvl5_usd").value) || 0,
+        lock_lvl5_usd: parseFloat(document.getElementById("lock_lvl5_usd").value) || 0
+      };
+
+      const btn = document.getElementById("saveBtn");
+      btn.disabled = true;
+      btn.innerHTML = "⏳ Menyinkronkan ke Cloudflare KV & Bot MT5...";
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Admin-Pin": pin
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+
+        showToast(
+          forceCloseAll
+            ? "Perintah FORCE CLOSE ALL dikirim ke MT5!"
+            : "Update tersimpan di KV & langsung sinkron ke MT5!",
+          false
+        );
+      } catch (err) {
+        showToast("Gagal menyimpan: " + err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "💾 SIMPAN & UPDATE KE BOT SECARA REAL-TIME";
+      }
+    }
+
+    function triggerForceClose() {
+      if (confirm("Yakin ingin menutup paksa (Force Close) seluruh posisi terbuka di MT5 sekarang juga?")) {
+        pushUpdate(true);
+      }
+    }
+
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = `fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg shadow-xl border text-sm font-semibold ${
+        isError
+          ? "bg-red-950 border-red-600 text-red-200"
+          : "bg-emerald-950 border-emerald-600 text-emerald-200"
+      }`;
+      setTimeout(() => {
+        toast.classList.add("hidden");
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
