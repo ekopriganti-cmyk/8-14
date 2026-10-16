@@ -14,8 +14,6 @@
       transition: border-color 0.15s ease;
     }
     .input-field:focus { outline: none; border-color: #3b82f6; }
-    .toggle-checkbox:checked { right: 0; border-color: #10b981; }
-    .toggle-checkbox:checked + .toggle-label { background-color: #10b981; }
   </style>
 </head>
 <body class="min-h-screen pb-16">
@@ -26,13 +24,13 @@
       <div class="flex items-center gap-3">
         <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" id="mt5Pulse"></div>
         <div>
-          <h1 class="text-base font-bold text-white tracking-tight">MT5 Bot Remote Control v2.0</h1>
-          <p class="text-xs text-gray-400" id="mt5StatusText">EMA 8 x EMA 14 (Terkunci) • Menunggu Koneksi Worker...</p>
+          <h1 class="text-base font-bold text-white tracking-tight">MT5 Bot Remote Control (EMA 8 x 14)</h1>
+          <p class="text-xs text-gray-400" id="mt5StatusText">Menghubungkan ke withered-bread-41c4.ekopriganti.workers.dev...</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <span id="syncBadge" class="text-xs px-2.5 py-1 rounded-full bg-gray-800 text-gray-300 border border-gray-700">
-          Belum Sinkron
+          Menghubungkan...
         </span>
       </div>
     </div>
@@ -43,18 +41,18 @@
     <!-- Notifikasi Pop-up -->
     <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-4 py-3 rounded-lg shadow-xl border text-sm font-medium transition-all"></div>
 
-    <!-- 0. Koneksi URL Cloudflare Worker -->
+    <!-- 0. Koneksi URL Cloudflare Worker (Sudah Terisi Otomatis) -->
     <section class="card p-4">
       <div class="flex items-center justify-between mb-2">
-        <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400">0. Koneksi Server Cloudflare Worker</h2>
+        <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400">0. Server Cloudflare Worker Anda</h2>
         <button onclick="fetchCurrentConfig()" class="text-xs text-blue-400 hover:text-blue-300 font-semibold">
           ↻ Muat Ulang Data
         </button>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div class="sm:col-span-2">
-          <label class="block text-xs text-gray-400 mb-1">URL Endpoint Worker (`InpWebConfigUrl`)</label>
-          <input type="url" id="workerUrl" placeholder="https://nama-worker.akun.workers.dev/bot-config.json" class="input-field text-sm" onchange="saveConnectionLocal()" />
+          <label class="block text-xs text-gray-400 mb-1">URL Endpoint Worker</label>
+          <input type="url" id="workerUrl" value="https://withered-bread-41c4.ekopriganti.workers.dev/bot-config.json" class="input-field text-sm" onchange="saveConnectionLocal()" />
         </div>
         <div>
           <label class="block text-xs text-gray-400 mb-1">PIN Admin (Opsional)</label>
@@ -72,7 +70,7 @@
             <div class="w-14 h-7 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
           </label>
           <div>
-            <div class="text-sm font-bold text-white" id="botActiveLabel">STATUS BOT: AKTIF (ON)</div>
+            <div class="text-sm font-bold text-emerald-400" id="botActiveLabel">STATUS BOT: AKTIF (ON)</div>
             <p class="text-xs text-gray-400">Saat di-ON-kan ulang, bot otomatis menunggu sinyal persilangan Fresh EMA 8 x 14.</p>
           </div>
         </div>
@@ -235,22 +233,20 @@
   </main>
 
   <script>
-    const STORAGE_URL_KEY = "mt5_bot_worker_url";
-    const STORAGE_PIN_KEY = "mt5_bot_admin_pin";
+    const DEFAULT_WORKER_URL = "https://withered-bread-41c4.ekopriganti.workers.dev/bot-config.json";
+    const STORAGE_URL_KEY = "mt5_bot_worker_url_v2";
+    const STORAGE_PIN_KEY = "mt5_bot_admin_pin_v2";
 
     window.addEventListener("DOMContentLoaded", () => {
-      const savedUrl = localStorage.getItem(STORAGE_URL_KEY);
-      const savedPin = localStorage.getItem(STORAGE_PIN_KEY);
-      if (savedUrl) document.getElementById("workerUrl").value = savedUrl;
-      if (savedPin) document.getElementById("adminPin").value = savedPin;
+      const savedUrl = localStorage.getItem(STORAGE_URL_KEY) || DEFAULT_WORKER_URL;
+      const savedPin = localStorage.getItem(STORAGE_PIN_KEY) || "";
+      document.getElementById("workerUrl").value = savedUrl;
+      document.getElementById("adminPin").value = savedPin;
 
-      if (savedUrl) {
-        fetchCurrentConfig();
-      }
-      // Polling status koneksi MT5 setiap 3 detik
+      fetchCurrentConfig();
+
       setInterval(() => {
-        const url = document.getElementById("workerUrl").value.trim();
-        if (url) pollMt5Heartbeat();
+        pollMt5Heartbeat();
       }, 3000);
     });
 
@@ -281,11 +277,7 @@
     }
 
     async function fetchCurrentConfig() {
-      const url = document.getElementById("workerUrl").value.trim();
-      if (!url) {
-        showToast("Masukkan URL Cloudflare Worker terlebih dahulu!", true);
-        return;
-      }
+      const url = document.getElementById("workerUrl").value.trim() || DEFAULT_WORKER_URL;
       saveConnectionLocal();
 
       try {
@@ -295,39 +287,39 @@
         const data = await res.json();
 
         populateForm(data);
-        updateHeartbeatUI(data._mt5_status);
-        showToast("Data konfigurasi berhasil dimuat dari Cloudflare KV!", false);
+        updateHeartbeatUI(data._mt5_status, data._kv_connected);
+        showToast("Terhubung ke Worker withered-bread-41c4!", false);
       } catch (err) {
-        showToast("Gagal terhubung ke Worker: " + err.message, true);
+        showToast("Belum terhubung ke Worker: " + err.message, true);
       }
     }
 
     async function pollMt5Heartbeat() {
-      const url = document.getElementById("workerUrl").value.trim();
-      if (!url) return;
+      const url = document.getElementById("workerUrl").value.trim() || DEFAULT_WORKER_URL;
       try {
         const sep = url.includes("?") ? "&" : "?";
         const res = await fetch(`${url}${sep}source=dashboard&t=${Date.now()}`);
         if (!res.ok) return;
         const data = await res.json();
-        updateHeartbeatUI(data._mt5_status);
+        updateHeartbeatUI(data._mt5_status, data._kv_connected);
       } catch (_) {}
     }
 
-    function updateHeartbeatUI(status) {
+    function updateHeartbeatUI(status, kvConnected) {
       const pulse = document.getElementById("mt5Pulse");
       const text = document.getElementById("mt5StatusText");
       const badge = document.getElementById("syncBadge");
+      const kvLabel = kvConnected ? "KV Aktif" : "RAM Mode (KV Belum Di-bind)";
 
       if (status && status.connected && status.seconds_ago !== null && status.seconds_ago <= 10) {
         pulse.className = "w-3 h-3 rounded-full bg-emerald-500 animate-ping";
-        text.textContent = `MT5 Terhubung: ${status.symbol} (Magic #${status.magic}) • Sinkron ${status.seconds_ago}d lalu`;
+        text.textContent = `MT5 Terhubung: ${status.symbol} (Magic #${status.magic}) • Sinkron ${status.seconds_ago}d lalu (${kvLabel})`;
         badge.textContent = "LIVE SINKRON";
         badge.className = "text-xs px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-semibold";
       } else {
         pulse.className = "w-3 h-3 rounded-full bg-amber-500";
-        text.textContent = "Worker Aktif • Menunggu ping WebRequest dari MT5...";
-        badge.textContent = "Standby KV";
+        text.textContent = `Worker Online (${kvLabel}) • Menunggu koneksi dari MT5...`;
+        badge.textContent = "Worker Siap";
         badge.className = "text-xs px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700";
       }
     }
@@ -361,13 +353,8 @@
 
     async function pushUpdate(forceCloseAll = false) {
       updateMasterVisual();
-      const url = document.getElementById("workerUrl").value.trim();
+      const url = document.getElementById("workerUrl").value.trim() || DEFAULT_WORKER_URL;
       const pin = document.getElementById("adminPin").value.trim();
-
-      if (!url) {
-        showToast("Masukkan URL Cloudflare Worker terlebih dahulu!", true);
-        return;
-      }
       saveConnectionLocal();
 
       const payload = {
@@ -395,7 +382,7 @@
 
       const btn = document.getElementById("saveBtn");
       btn.disabled = true;
-      btn.innerHTML = "⏳ Menyinkronkan ke Cloudflare KV & Bot MT5...";
+      btn.innerHTML = "⏳ Menyinkronkan ke Worker & Bot MT5...";
 
       try {
         const res = await fetch(url, {
@@ -413,7 +400,7 @@
         showToast(
           forceCloseAll
             ? "Perintah FORCE CLOSE ALL dikirim ke MT5!"
-            : "Update tersimpan di KV & langsung sinkron ke MT5!",
+            : "Update berhasil disimpan & langsung sinkron ke MT5!",
           false
         );
       } catch (err) {
